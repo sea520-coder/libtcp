@@ -1,0 +1,11 @@
+/root/tcp_client/obj/Debug/netcoreapp3.0/tcp_client.csprojAssemblyReference.cache
+/root/tcp_client/obj/Debug/netcoreapp3.0/tcp_client.AssemblyInfoInputs.cache
+/root/tcp_client/obj/Debug/netcoreapp3.0/tcp_client.AssemblyInfo.cs
+/root/tcp_client/bin/Debug/netcoreapp3.0/tcp_client
+/root/tcp_client/bin/Debug/netcoreapp3.0/tcp_client.deps.json
+/root/tcp_client/bin/Debug/netcoreapp3.0/tcp_client.runtimeconfig.json
+/root/tcp_client/bin/Debug/netcoreapp3.0/tcp_client.runtimeconfig.dev.json
+/root/tcp_client/bin/Debug/netcoreapp3.0/tcp_client.dll
+/root/tcp_client/bin/Debug/netcoreapp3.0/tcp_client.pdb
+/root/tcp_client/obj/Debug/netcoreapp3.0/tcp_client.dll
+/root/tcp_client/obj/Debug/netcoreapp3.0/tcp_client.pdb
