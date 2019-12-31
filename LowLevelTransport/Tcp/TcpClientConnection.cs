@@ -75,25 +75,21 @@ namespace LowLevelTransport.Tcp
                 
                 Socket.Select(checkRead, checkWrite, null, 1000);
 
-                bool still_update = false;
+                
                 foreach(var socket in checkRead)
                 {
-                    if(ReadClientfd(socket))
+                    if(socket != null)
                     {
-                        still_update = true;
+                        ReadClientfd(socket);
                     }
                 }
+               
                 foreach(var socket in checkWrite)
                 {
                     if(socket != null)
                     {
                         WriteClientfd(socket);
-                        still_update = true;
                     }
-                }
-                if(!still_update)
-                {
-                    break;
                 }
             }
         }
