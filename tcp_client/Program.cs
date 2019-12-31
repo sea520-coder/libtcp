@@ -13,6 +13,7 @@ namespace LowLevelTransport.Tcp
         static void Main(string[] args)
         {
             TcpClientConnection tccon = new TcpClientConnection("127.0.0.1", 8888);
+            ConnectAsync
             while(true)
             {
                 string key = Console.ReadLine();
@@ -20,5 +21,6 @@ namespace LowLevelTransport.Tcp
                 tccon.SendBytes(buff);
             }
         }
+        static async Task<bool>
     }
 }

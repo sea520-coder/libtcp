@@ -5,16 +5,20 @@ using System.Threading.Tasks;
 using System.Threading;
 using System.Threading.Tasks.Dataflow;
 using System;
+using LowLevelTransport.Utils;
+#if DOTNET_CORE
+using System.Threading.Channels;
+#endif
 
 namespace LowLevelTransport.Tcp
 {
     public partial class TcpConnectionListener
     {
-        private Dictionary<Socket, TcpConnection> clients = new Dictionary<Socket, TcpConnection>();
+        private Dictionary<Socket, TcpServerConnection> clients = new Dictionary<Socket, TcpServerConnection>();
 #if DOTNET_CORE
-        private readonly BufferBlock<TcpConnection> newConnQueue = new BufferBlock<TcpConnection>();
+        private readonly BufferBlock<TcpServerConnection> newConnQueue = new BufferBlock<TcpServerConnection>();
 #else
-        private readonly Queue<TcpConnection> newConnQueue = new Queue<TcpConnection>();
+        private readonly Queue<TcpServerConnection> newConnQueue = new Queue<TcpServerConnection>();
 #endif
         private Socket listenSock;
         private Thread sendReceiveThread;
@@ -29,7 +33,6 @@ namespace LowLevelTransport.Tcp
             IPEndPoint ipEndPoint = new IPEndPoint(ipAddress, port);
             listenSock.Bind(ipEndPoint);
             listenSock.Listen(0);
-            Console.WriteLine("Server start!");
         }
         public void Start()
         {
@@ -41,12 +44,12 @@ namespace LowLevelTransport.Tcp
             sendReceiveThread.Start();
         }
 #if DOTNET_CORE
-        public async Task<TcpConnection> AcceptAsync(CancellationToken token)
+        public async Task<Connection> AcceptAsync(CancellationToken token)
         {
             return await newConnQueue.ReceiveAsync(cancellationToken: token);
         }
 #else
-        public TcpConnection Accept()
+        public Connection Accept()
         {
             if (newConnQueue.Count != 0)
                 return newConnQueue.Dequeue();
@@ -98,9 +101,10 @@ namespace LowLevelTransport.Tcp
             Console.WriteLine("Accept");
             Socket client = listensock.Accept();
             client.NoDelay = true;
-            TcpConnection conn = new TcpConnection();
+            TcpServerConnection conn = new TcpServerConnection();
             conn.socket = client;
             conn.lastAliveTime = GetMillisecondStamp();
+            conn.State = ConnectionState.Connected;
             clients.Add(client, conn);
 #if DOTNET_CORE
             newConnQueue.Post(conn);
@@ -110,7 +114,12 @@ namespace LowLevelTransport.Tcp
         }
         private void WriteClientfd(Socket clientfd)
         {
-            TcpConnection conn = clients[clientfd];
+            TcpServerConnection conn;
+            if(!clients.TryGetValue(clientfd, out conn))
+            {
+                Console.WriteLine("WriteClientfd not find clientfd");
+                return;
+            }
             lock(conn.sendQueue)
             {
                 while(conn.sendQueue.Count != 0)
@@ -122,51 +131,73 @@ namespace LowLevelTransport.Tcp
         }
         private bool ReadClientfd(Socket clientfd)
         {
-            TcpConnection state = clients[clientfd];
+            TcpServerConnection conn;
+            if(!clients.TryGetValue(clientfd, out conn))
+            {
+                Console.WriteLine("ReadClientfd not find clientfd");
+                return false;
+            }
+
             int hostByte = 0;
             int count = 0;
             try
             {
-                count = clientfd.Receive(state.peekReceiveBuffer, 4, SocketFlags.None);
+                count = clientfd.Receive(conn.peekReceiveBuffer, 4, SocketFlags.None);
                 if(count == 0)
                 {
+                    Remove(clientfd);
                     clientfd.Close();
                     Console.WriteLine("Socket close");
                     return false;
                 }
-                int bytes = BitConverter.ToInt32(state.peekReceiveBuffer, 0);
+                int bytes = BitConverter.ToInt32(conn.peekReceiveBuffer, 0);
                 hostByte = IPAddress.NetworkToHostOrder(bytes);
                 if(hostByte == 0)
                 {
-                    Interlocked.Exchange(ref state.lastAliveTime, GetMillisecondStamp());
-                //  Console.WriteLine("lastAliveTime {0}", state.lastAliveTime);
+                    Interlocked.Exchange(ref conn.lastAliveTime, GetMillisecondStamp());
                     byte[] dst = new byte[4]{0, 0, 0, 0};
-                    state.socket.Send(dst);
+                    conn.socket.Send(dst);
                     return true;
                 }
-                count = clientfd.Receive(state.peekReceiveBuffer, hostByte, SocketFlags.None);
+                count = clientfd.Receive(conn.peekReceiveBuffer, hostByte, SocketFlags.None);
             }
-            catch(SocketException ex)
+            catch(SocketException e)
             {
+                Remove(clientfd);
                 clientfd.Close();
-                clients.Remove(clientfd);
-                Console.WriteLine($"Receive Socket Exception {ex.ToString()}");
+                Console.WriteLine($"Receive Socket Exception {e.Message} {e.ErrorCode}");
                 return false;
+            }
+            catch(ObjectDisposedException e)
+            {
+                Remove(clientfd);
+                Console.WriteLine("ReadClientfd {0}", e.Message);
             }
             if(count == 0)
             {
+                Remove(clientfd);
                 clientfd.Close();
-                clients.Remove(clientfd);
                 Console.WriteLine("Socket close");
                 return false;
             }
 
             byte[] buff = new byte[hostByte];
-            Buffer.BlockCopy(state.peekReceiveBuffer, 0, buff, 0, hostByte);
-            state.recvQueue.Enqueue(buff);
+            Buffer.BlockCopy(conn.peekReceiveBuffer, 0, buff, 0, hostByte);
+#if DOTNET_CORE
+            if(!conn.recvQueue.Writer.TryWrite(buff))
+            {
+                UInt16 msgType = hostByte > 1 ? (UInt16)(( (UInt16)buff[1] << 8 ) | ( (UInt16)buff[0] )) : (UInt16)0;
+                Log.Error($"receive queue overload & last type{msgType}");
+            }
+#else
+            lock (conn.recvQueue)
+            {
+                conn.recvQueue.Enqueue(buff);
+            }
+#endif
             return true;
         }
-        private void Remote(Socket socket)
+        private void Remove(Socket socket)
         {
             lock(clients)
             {

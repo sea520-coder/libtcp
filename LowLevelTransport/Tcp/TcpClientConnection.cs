@@ -1,0 +1,197 @@
+using System.Net.Sockets;
+using System.Net;
+using System.Collections.Generic;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using LowLevelTransport.Utils;
+
+namespace LowLevelTransport.Tcp
+{
+    public partial class TcpClientConnection : TcpConnection
+    {
+        private Thread sendReceiveThread;
+        private IPEndPoint remoteEP;
+
+        public TcpClientConnection(string host, int port, string remoteHost, int remotePort, int sendBufferSize = 65535, int receiveBufferSize = 65535)
+        {
+            IPAddress ipAddress = IPAddress.Parse(remoteHost);
+            remoteEP = new IPEndPoint(ipAddress, remotePort);
+            socket = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        }
+        public Task<bool> ConnectAsync(int timeout = 3000)
+        {
+            lock(stateLock)
+            {
+                if(State != ConnectionState.NotConnected)
+                {
+                    throw new InvalidOperationException("Cannot connect as the Connection is already connected.");
+                }
+                State = ConnectionState.Connecting;
+            }
+
+            try
+            {
+                socket.Connect(remoteEP);
+            }
+            catch(SocketException e)
+            {
+                State = ConnectionState.NotConnected;
+                throw new LowLevelTransportException("tcp socket connect fail", e);
+            }
+
+            socket.NoDelay = true;
+            Console.WriteLine("Socket connected to {0}", socket.RemoteEndPoint.ToString());
+            InitKeepAliveTimer();
+            lock(stateLock)
+            {
+                State = ConnectionState.Connected;
+            }
+            sendReceiveThread = new Thread(SendReceiveMsg)
+            {
+                IsBackground = true
+            };
+            sendReceiveThread.Start();
+            return Task.FromResult(true);
+        }
+        private void SendReceiveMsg()
+        {
+            List<Socket> checkRead = new List<Socket>();
+            List<Socket> checkWrite = new List<Socket>();
+            while(true)
+            {
+                if(State != ConnectionState.Connected)
+                {
+                    Log.Error("not connected is exist");
+                    break;
+                }
+
+                checkRead.Clear();
+                checkRead.Add(socket);
+                if(sendQueue.Count > 0)
+                {
+                    checkWrite.Add(socket);
+                }
+                
+                Socket.Select(checkRead, checkWrite, null, 1000);
+
+                bool still_update = false;
+                foreach(var socket in checkRead)
+                {
+                    if(ReadClientfd(socket))
+                    {
+                        still_update = true;
+                    }
+                }
+                foreach(var socket in checkWrite)
+                {
+                    if(socket != null)
+                    {
+                        WriteClientfd(socket);
+                        still_update = true;
+                    }
+                }
+                if(!still_update)
+                {
+                    break;
+                }
+            }
+        }
+        private void WriteClientfd(Socket clientfd)
+        {
+            lock(sendQueue)
+            {
+                while(sendQueue.Count != 0)
+                {
+                    byte[] msg = sendQueue.Dequeue();
+                    clientfd.Send(msg);
+                }
+            }
+        }
+        private bool ReadClientfd(Socket clientfd)
+        {
+            int hostByte = 0;
+            int count = 0;
+            try
+            {
+                count = clientfd.Receive(peekReceiveBuffer, 4, SocketFlags.None);
+                if(count == 0)
+                {
+                    clientfd.Close();
+                    clientfd = null;
+                    Console.WriteLine("len Socket close");
+                    return false;
+                }
+                int bytes = BitConverter.ToInt32(peekReceiveBuffer, 0);
+                hostByte = IPAddress.NetworkToHostOrder(bytes);
+                if(hostByte == 0)
+                {
+                    HandleHeartbeat();
+                    return true;
+                }
+                count = clientfd.Receive(peekReceiveBuffer, hostByte, SocketFlags.None);
+            }
+            catch(SocketException e)
+            {
+                clientfd.Close();
+                clientfd = null;
+                Console.WriteLine($"Receive Socket Exception {e.Message} {e.ErrorCode}");
+                return false;
+            }
+            catch(ObjectDisposedException e)
+            {
+                Console.WriteLine("ReadClientfd {0}", e.Message);
+                return false;
+            }
+            if(count == 0)
+            {
+                clientfd.Close();
+                clientfd = null;
+                Console.WriteLine("data Socket close");
+                return false;
+            }
+
+            byte[] buff = new byte[hostByte];
+            Buffer.BlockCopy(peekReceiveBuffer, 0, buff, 0, hostByte);
+#if DOTNET_CORE
+            if(!recvQueue.Writer.TryWrite(buff))
+            {
+                UInt16 msgType = hostByte > 1 ? (UInt16)(( (UInt16)buff[1] << 8 ) | ( (UInt16)buff[0] )) : (UInt16)0;
+                Log.Error($"receive queue overload & last type{msgType}");
+            }
+#else
+            lock (recvQueue)
+            {
+                recvQueue.Enqueue(buff);
+            }
+#endif
+            return true;
+        }
+        private void InvokeDisconnected(Exception e = null)
+        {
+            Log.Error("Disconnect tcp IP:{0} Exception{1}", remoteEP.ToString(), e?.Message);
+            lock(stateLock)
+            {
+                State = ConnectionState.NotConnected;
+            }
+            StopTimer();
+            Close();
+        }
+        private void HandleDisconnect(Exception e)
+        {
+            bool invoke = false;
+            lock(stateLock)
+            {
+                if(State == ConnectionState.Connected)
+                {
+                    State = ConnectionState.Disconnecting;
+                    invoke = true;
+                }
+            }
+            if(invoke)
+            {
+                InvokeDisconnected(e);
+            }
+        }
+    }
+}

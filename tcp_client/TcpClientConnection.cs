@@ -14,11 +14,15 @@ namespace LowLevelTransport.Tcp
         private Queue<byte[]> sendQueue = new Queue<byte[]>();
         private readonly CancellationTokenSource sessionCTS = new CancellationTokenSource();
         private Thread sendReceiveThread;
+        private IPEndPoint remoteEP;
         public TcpClientConnection(string host, int port, int sendBufferSize = 65535, int receiveBufferSize = 65535)
         {
             IPAddress ipAddress = IPAddress.Parse(host);
-            IPEndPoint remoteEP = new IPEndPoint(ipAddress, port);
+            remoteEP = new IPEndPoint(ipAddress, port);
             client = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        }
+        public Task<bool> ConnectAsync(int timeout = 3000)
+        {
             client.Connect(remoteEP);
             client.NoDelay = true;
             Console.WriteLine("Socket connected to {0}", client.RemoteEndPoint.ToString());
@@ -28,6 +32,7 @@ namespace LowLevelTransport.Tcp
                 IsBackground = true
             };
             sendReceiveThread.Start();
+            return Task.FromResult(true);
         }
         public void Close(Exception e = null)
         {
