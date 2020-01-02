@@ -3,15 +3,20 @@ using LowLevelTransport.Tcp;
 using System.Threading.Tasks;
 using System.Threading;
 using System;
+using System.Net;
 
 namespace LowLevelTransport
 {
     public class ClientConnection
     {
-        TcpClientConnection connection;
+        UdpClientConnection connection;
         public ClientConnection(string host, int port, string remoteHost, int remotePort)
         {
-            connection = new TcpClientConnection(host, port, remoteHost, remotePort);
+            connection = new UdpClientConnection(host, port, remoteHost, remotePort);
+        }
+        public ClientConnection(EndPoint ep, int flushInterval = 10)
+        {
+            connection = new UdpClientConnection(ep, flushInterval);
         }
         public Task<bool> ConnectAsync(int timeout = 3000)
         {
@@ -53,6 +58,14 @@ namespace LowLevelTransport
         public void Flush()
         {
             connection.Flush();
+        }
+        public bool IsClosed()
+        {
+            return connection.IsClosed();
+        }
+        public void ReconnectTest()
+        {
+
         }
     }
 }

@@ -3,7 +3,8 @@ namespace LowLevelTransport
     public enum SendOption : byte
     {
         None = 0,
-        FragmentedReliable = 1
+        FragmentedReliable = 1,
+        Reliable
     }
 
     public enum UdpSendOption : byte

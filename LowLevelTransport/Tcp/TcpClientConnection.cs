@@ -11,13 +11,19 @@ namespace LowLevelTransport.Tcp
     public partial class TcpClientConnection : TcpConnection
     {
         private Thread sendReceiveThread;
-        private IPEndPoint remoteEP;
+        private EndPoint remoteEP;
 
         public TcpClientConnection(string host, int port, string remoteHost, int remotePort, int sendBufferSize = 65535, int receiveBufferSize = 65535)
         {
             IPAddress ipAddress = IPAddress.Parse(remoteHost);
             remoteEP = new IPEndPoint(ipAddress, remotePort);
-            socket = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        }
+        public TcpClientConnection(EndPoint ep, int flushInterval = 10, 
+            int sendBufferSize = (int)ClientSocketBufferOption.SendSize, int receiveBufferSize = (int)ClientSocketBufferOption.ReceiveSize)
+        {
+            remoteEP = ep;
+            socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         }
         public Task<bool> ConnectAsync(int timeout = 3000)
         {
@@ -33,6 +39,7 @@ namespace LowLevelTransport.Tcp
             try
             {
                 socket.Connect(remoteEP);
+                socket.NoDelay = true;
             }
             catch(SocketException e)
             {
@@ -40,7 +47,6 @@ namespace LowLevelTransport.Tcp
                 throw new LowLevelTransportException("tcp socket connect fail", e);
             }
 
-            socket.NoDelay = true;
             Console.WriteLine("Socket connected to {0}", socket.RemoteEndPoint.ToString());
             InitKeepAliveTimer();
             lock(stateLock)
@@ -67,6 +73,7 @@ namespace LowLevelTransport.Tcp
                 }
 
                 checkRead.Clear();
+                checkWrite.Clear();
                 checkRead.Add(socket);
                 if(sendQueue.Count > 0)
                 {
@@ -75,7 +82,6 @@ namespace LowLevelTransport.Tcp
                 
                 Socket.Select(checkRead, checkWrite, null, 1000);
 
-                
                 foreach(var socket in checkRead)
                 {
                     if(socket != null)
@@ -83,7 +89,7 @@ namespace LowLevelTransport.Tcp
                         ReadClientfd(socket);
                     }
                 }
-               
+
                 foreach(var socket in checkWrite)
                 {
                     if(socket != null)
@@ -100,7 +106,8 @@ namespace LowLevelTransport.Tcp
                 while(sendQueue.Count != 0)
                 {
                     byte[] msg = sendQueue.Dequeue();
-                    clientfd.Send(msg);
+                    if(clientfd != null)
+                        clientfd.Send(msg);
                 }
             }
         }
@@ -110,13 +117,17 @@ namespace LowLevelTransport.Tcp
             int count = 0;
             try
             {
-                count = clientfd.Receive(peekReceiveBuffer, 4, SocketFlags.None);
+                count = clientfd.Receive(peekReceiveBuffer, 0, 4, SocketFlags.None);
                 if(count == 0)
                 {
                     clientfd.Close();
                     clientfd = null;
-                    Console.WriteLine("len Socket close");
+                    Log.Info("Socket Close");
                     return false;
+                }
+                while(count != 4)
+                {
+                    count += clientfd.Receive(peekReceiveBuffer, count, 4 - count, SocketFlags.None);
                 }
                 int bytes = BitConverter.ToInt32(peekReceiveBuffer, 0);
                 hostByte = IPAddress.NetworkToHostOrder(bytes);
@@ -125,7 +136,11 @@ namespace LowLevelTransport.Tcp
                     HandleHeartbeat();
                     return true;
                 }
-                count = clientfd.Receive(peekReceiveBuffer, hostByte, SocketFlags.None);
+                count = clientfd.Receive(peekReceiveBuffer, 0, hostByte, SocketFlags.None);
+                while(count != hostByte)
+                {
+                    count += clientfd.Receive(peekReceiveBuffer, count, hostByte - count, SocketFlags.None);
+                }
             }
             catch(SocketException e)
             {

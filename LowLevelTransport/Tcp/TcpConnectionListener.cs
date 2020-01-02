@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using System.Threading;
-using System.Threading.Tasks.Dataflow;
 using System;
 using LowLevelTransport.Utils;
 #if DOTNET_CORE
+using System.Threading.Tasks.Dataflow;
 using System.Threading.Channels;
 #endif
 
@@ -69,7 +69,9 @@ namespace LowLevelTransport.Tcp
             while(true)
             {
                 checkRead.Clear();
+                checkWrite.Clear();
                 checkRead.Add(listenSock);
+                //Log.Error("====count {0}", clients.Count);
                 foreach(var clientState in clients.Values)
                 {
                     checkRead.Add(clientState.socket);
@@ -142,41 +144,51 @@ namespace LowLevelTransport.Tcp
             int count = 0;
             try
             {
-                count = clientfd.Receive(conn.peekReceiveBuffer, 4, SocketFlags.None);
+                count = clientfd.Receive(conn.peekReceiveBuffer, 0, 4, SocketFlags.None);
                 if(count == 0)
                 {
                     Remove(clientfd);
                     clientfd.Close();
-                    Console.WriteLine("Socket close");
+                    Log.Info("Socket Close");
                     return false;
+                }
+                while(count != 4)
+                {
+                    count += clientfd.Receive(conn.peekReceiveBuffer, count, 4 - count, SocketFlags.None);
                 }
                 int bytes = BitConverter.ToInt32(conn.peekReceiveBuffer, 0);
                 hostByte = IPAddress.NetworkToHostOrder(bytes);
                 if(hostByte == 0)
                 {
+                    //Log.Info("heart ===============");
                     Interlocked.Exchange(ref conn.lastAliveTime, GetMillisecondStamp());
                     byte[] dst = new byte[4]{0, 0, 0, 0};
                     conn.socket.Send(dst);
                     return true;
                 }
-                count = clientfd.Receive(conn.peekReceiveBuffer, hostByte, SocketFlags.None);
+                count = clientfd.Receive(conn.peekReceiveBuffer, 0, hostByte, SocketFlags.None);
+                while(count != hostByte)
+                {
+                    count += clientfd.Receive(conn.peekReceiveBuffer, count, hostByte - count, SocketFlags.None);
+                }
             }
             catch(SocketException e)
             {
                 Remove(clientfd);
                 clientfd.Close();
-                Console.WriteLine($"Receive Socket Exception {e.Message} {e.ErrorCode}");
+                Log.Error($"ReadClientfd SocketException {e.Message} {e.ErrorCode}");
                 return false;
             }
             catch(ObjectDisposedException e)
             {
                 Remove(clientfd);
-                Console.WriteLine("ReadClientfd {0}", e.Message);
+                Log.Error("ReadClientfd ObjectDisposedException {0}", e.Message);
             }
             if(count == 0)
             {
                 Remove(clientfd);
                 clientfd.Close();
+
                 Console.WriteLine("Socket close");
                 return false;
             }

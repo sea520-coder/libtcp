@@ -31,7 +31,7 @@ namespace LowLevelTransport.Udp
         }
         internal int SendBufferSize() => server.SendBufferSize;
         internal int ReceiveBufferSize() => server.ReceiveBufferSize;
-        public UdpConnectionListener(string host, int port, int sendBufferSize = (int)ServerSocketBufferOption.SendSize, 
+        internal UdpConnectionListener(string host, int port, int sendBufferSize = (int)ServerSocketBufferOption.SendSize, 
             int receiveBufferSize = (int)ServerSocketBufferOption.ReceiveSize)
         {
             server = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
@@ -48,7 +48,7 @@ namespace LowLevelTransport.Udp
             server.IOControl((int)SIO_UDP_CONNRESET, new byte[1], null);
 #endif
         }
-        public void Start()
+        internal void Start()
         {
             server.Bind(endPoint);
             receiveThread = new Thread(ReceiveMsg)
@@ -59,19 +59,19 @@ namespace LowLevelTransport.Udp
             InitCheckTimeoutTimer();
         }
 #if DOTNET_CORE
-        public async Task<Connection> AcceptAsync(CancellationToken token)
+        internal async Task<Connection> AcceptAsync(CancellationToken token)
         {
             return await newConnQueue.ReceiveAsync(cancellationToken: token);
         }
 #else
-        public Connection Accept()
+        internal Connection Accept()
         {
             if (newConnQueue.Count != 0)
                 return newConnQueue.Dequeue();
             return null;
         }
 #endif
-        public void Close()
+        internal void Close()
         {
             StopCheckTimeoutTimer();
             receiveThread.Abort();

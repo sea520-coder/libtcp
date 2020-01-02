@@ -9,7 +9,7 @@ namespace LowLevelTransport.Tcp
         private Timer timer;
         protected void InitKeepAliveTimer()
         {
-            timer = new Timer(KeepAlive, null, 2000, 2000);
+            timer = new Timer(KeepAlive, null, 5000, 5000);
         }
         private void KeepAlive(object obj)
         {

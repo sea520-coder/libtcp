@@ -8,11 +8,11 @@ namespace LowLevelTransport
 {
     public class ConnectionListener
     {
-        TcpConnectionListener listener;
+        UdpConnectionListener listener;
         public ConnectionListener(string host, int port, int sendBufferSize = (int)ServerSocketBufferOption.SendSize, 
             int receiveBufferSize = (int)ServerSocketBufferOption.ReceiveSize)
         {
-            listener = new TcpConnectionListener(host, port, sendBufferSize, receiveBufferSize);
+            listener = new UdpConnectionListener(host, port, sendBufferSize, receiveBufferSize);
         }
         public virtual void Start()
         {

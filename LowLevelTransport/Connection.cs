@@ -52,5 +52,8 @@ namespace LowLevelTransport
         public void Flush()
         {
         }
+        public void ReconnectTest()
+        {
+        }
     }
 }

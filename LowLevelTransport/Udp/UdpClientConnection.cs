@@ -18,7 +18,7 @@ namespace LowLevelTransport.Udp
         protected override int SendBufferSize() => client.SendBufferSize;
         protected override int ReceiveBufferSize() => client.ReceiveBufferSize;
         private Thread receiveThread;
-        public UdpClientConnection(string host, int port, string remoteHost, int remotePort, 
+        internal UdpClientConnection(string host, int port, string remoteHost, int remotePort, 
             int sendBufferSize = (int)ClientSocketBufferOption.SendSize, int receiveBufferSize = (int)ClientSocketBufferOption.ReceiveSize)
         {
             client = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
@@ -35,7 +35,7 @@ namespace LowLevelTransport.Udp
             client.IOControl((int)SIO_UDP_CONNRESET, new byte[1], null);
 #endif
         }
-        public UdpClientConnection(EndPoint ep, int flushInterval = 10, 
+        internal UdpClientConnection(EndPoint ep, int flushInterval = 10, 
             int sendBufferSize = (int)ClientSocketBufferOption.SendSize, int receiveBufferSize = (int)ClientSocketBufferOption.ReceiveSize)
         {
             endPoint = new IPEndPoint(IPAddress.Any, 0);
@@ -48,7 +48,7 @@ namespace LowLevelTransport.Udp
                 ReceiveTimeout = 500,
             };
         }
-        public Task<bool> ConnectAsync(int timeout = (int)ConnectOption.Timeout)
+        internal Task<bool> ConnectAsync(int timeout = (int)ConnectOption.Timeout)
         {
             Log.Info("try connect a server");
             lock (stateLock)
